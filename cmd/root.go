@@ -185,6 +185,11 @@ func newWalkDirCallback(
 			return nil
 		}
 
+		if strings.HasSuffix(currentPath, ".lock.hcl") {
+			fmt.Fprintf(os.Stderr, "Skipping lockfile: %s\n", currentPath)
+			return nil
+		}
+
 		if !isDryRun {
 			fmt.Printf("Processing %s...\n", currentPath)
 		}
