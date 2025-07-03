@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AlexNabokikh/tfsort/internal/hclsort"
+	"github.com/google/go-cmp/cmp"
 )
 
 const (
@@ -263,9 +264,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Failed to read output file %s: %v", outputFile, errRead)
 		}
 
-		if string(outFileBytes) != normalizedExpectedSortedContent {
-			t.Errorf("Output file content mismatch.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedContent, string(outFileBytes))
+		if diff := cmp.Diff(string(outFileBytes), normalizedExpectedSortedContent); diff != "" {
+			t.Errorf("Output file content mismatch:\n%s", diff)
 		}
 	})
 
@@ -285,9 +285,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Failed to read output file %s: %v", outputFile, errRead)
 		}
 
-		if string(outFileBytes) != normalizedExpectedSortedTofuContent {
-			t.Errorf("Output file content mismatch for .tofu.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedTofuContent, string(outFileBytes))
+		if diff := cmp.Diff(string(outFileBytes), normalizedExpectedSortedTofuContent); diff != "" {
+			t.Errorf("Output file content mismatch for .tofu:\n%s", diff)
 		}
 	})
 
@@ -303,9 +302,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Parse failed unexpectedly during dry run from file: %v", parseErr)
 		}
 
-		if capturedStdout != normalizedExpectedSortedContent {
-			t.Errorf("Dry run output mismatch for file input.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedContent, capturedStdout)
+		if diff := cmp.Diff(capturedStdout, normalizedExpectedSortedContent); diff != "" {
+			t.Errorf("Dry run output mismatch for file input:\n%s", diff)
 		}
 
 		if _, errStat := os.Stat(outputFile); !os.IsNotExist(errStat) {
@@ -329,9 +327,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Failed to read modified input file %s: %v", tempInputFile, errRead)
 		}
 
-		if string(modifiedBytes) != normalizedExpectedSortedContent {
-			t.Errorf("Overwritten input file content mismatch.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedContent, string(modifiedBytes))
+		if diff := cmp.Diff(string(modifiedBytes), normalizedExpectedSortedContent); diff != "" {
+			t.Errorf("Overwritten input file content mismatch:\n%s", diff)
 		}
 	})
 
@@ -370,9 +367,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Parse from stdin to stdout failed unexpectedly: %v", parseErr)
 		}
 
-		if capturedStdout != normalizedExpectedSortedContent {
-			t.Errorf("Output to stdout from stdin mismatch.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedContent, capturedStdout)
+		if diff := cmp.Diff(capturedStdout, normalizedExpectedSortedContent); diff != "" {
+			t.Errorf("Output to stdout from stdin mismatch:\n%s", diff)
 		}
 
 		if _, errStat := os.Stat(outputFile); !os.IsNotExist(errStat) {
@@ -400,9 +396,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Failed to read output file %s: %v", outputFile, errRead)
 		}
 
-		if string(outFileBytes) != normalizedExpectedSortedContent {
-			t.Errorf("Output file content mismatch from stdin.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedContent, string(outFileBytes))
+		if diff := cmp.Diff(string(outFileBytes), normalizedExpectedSortedContent); diff != "" {
+			t.Errorf("Output file content mismatch from stdin:\n%s", diff)
 		}
 	})
 
@@ -421,9 +416,8 @@ func TestParse(t *testing.T) {
 			t.Fatalf("Parse from stdin with dry-run failed unexpectedly: %v", parseErr)
 		}
 
-		if capturedStdout != normalizedExpectedSortedContent {
-			t.Errorf("Dry run output to stdout from stdin mismatch.\nExpected:\n%s\nGot:\n%s",
-				normalizedExpectedSortedContent, capturedStdout)
+		if diff := cmp.Diff(capturedStdout, normalizedExpectedSortedContent); diff != "" {
+			t.Errorf("Dry run output to stdout from stdin mismatch:\n%s", diff)
 		}
 		if _, errStat := os.Stat(outputFile); !os.IsNotExist(errStat) {
 			t.Error("Output file was created during stdin dry run, but should not have been")
@@ -571,5 +565,90 @@ locals {
 	}
 	if idxList > idxString {
 		t.Errorf("expected list before string, but got:\n%s", output)
+	}
+}
+
+func TestSortResourceBlocks(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		hclInput string
+		want     string
+	}{
+		"count_first": {
+			hclInput: `resource "aws_instance" "example" {
+  tags = {
+    Name = "example-instance"
+  }
+  instance_type = "t2.micro"
+  ami           = "ami-12345678"
+  count = 1
+}`,
+			want: `resource "aws_instance" "example" {
+  count = 1
+
+  ami           = "ami-12345678"
+  instance_type = "t2.micro"
+  tags = {
+    Name = "example-instance"
+  }
+}`,
+		},
+		"unchanged": {
+			hclInput: `resource "aws_instance" "unchanged" {
+  for_each = [1]
+
+  ami           = "ami-12345678"
+  instance_type = "t4g.nano"
+  tags = {
+    Name = "test-spot"
+  }
+
+  instance_market_options {
+    market_type = "spot"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
+
+  depends_on = [aws_instance.other]
+}`,
+			want: `resource "aws_instance" "unchanged" {
+  for_each = [1]
+
+  ami           = "ami-12345678"
+  instance_type = "t4g.nano"
+  tags = {
+    Name = "test-spot"
+  }
+
+  instance_market_options {
+    market_type = "spot"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
+
+  depends_on = [aws_instance.other]
+}`,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			file, err := hclsort.ParseHCLContent([]byte(tc.hclInput), "test.tf")
+			if err != nil {
+				t.Fatalf("ParseHCLContent failed: %v", err)
+			}
+			sortedFile := hclsort.ProcessAndSortBlocks(file, map[string]bool{})
+			got := string(hclsort.FormatHCLBytes(sortedFile))
+
+			if diff := cmp.Diff(strings.ReplaceAll(tc.want, "	", ""), strings.ReplaceAll(got, "	", "")); diff != "" {
+				t.Errorf("expected output to match expected output, but got:\n%s", diff)
+			}
+		})
 	}
 }

@@ -100,6 +100,118 @@ func sortLocalsBlock(block *hclwrite.Block) {
 	body.AppendNewline()
 }
 
+// sortResourceParams sorts the resource parameters for a resource/data block according to the Terraform Style Guide
+func sortResourceParams(block *hclwrite.Block) {
+	body := block.Body()
+	attrs := body.Attributes()
+	blocks := body.Blocks()
+
+	// First in block
+	const metaArgCount = "count"
+	const metaArgForEach = "for_each"
+	// Last in block
+	const metaBlockLifecycle = "lifecycle"
+	const metaArgDependsOn = "depends_on"
+	namesFirst := []string{}
+	hasDependsOn := false
+	// blocksLast := []*hclwrite.Block{}
+	names := []string{}
+	for name := range attrs {
+		switch name {
+		case metaArgCount, metaArgForEach:
+			namesFirst = append(namesFirst, name)
+		case metaArgDependsOn:
+			hasDependsOn = true
+		default:
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	// Rebuild body
+	body.Clear()
+	body.AppendNewline()
+
+	// Add `for_each` or `count` attribute
+	for _, name := range namesFirst {
+		attr := attrs[name]
+		tokens := attr.BuildTokens(nil)
+
+		// Remove leading and trailing newlines from tokens
+		start, end := 0, len(tokens)
+		for start < end && tokens[start].Type == hclsyntax.TokenNewline {
+			start++
+		}
+		for end > start && tokens[end-1].Type == hclsyntax.TokenNewline {
+			end--
+		}
+		body.AppendUnstructuredTokens(tokens[start:end])
+		body.AppendNewline()
+	}
+
+	if len(namesFirst) > 0 {
+		body.AppendNewline()
+	}
+
+	// Add attributes
+	for idx, name := range names {
+		attr := attrs[name]
+		tokens := attr.BuildTokens(nil)
+
+		// Remove leading and trailing newlines from tokens
+		start, end := 0, len(tokens)
+		for start < end && tokens[start].Type == hclsyntax.TokenNewline {
+			start++
+		}
+		for end > start && tokens[end-1].Type == hclsyntax.TokenNewline {
+			end--
+		}
+
+		body.AppendUnstructuredTokens(tokens[start:end])
+		// Append a newline after each attribute except the last one
+		if idx+1 < len(names) {
+			body.AppendNewline()
+		}
+	}
+
+	if len(blocks) > 0 && (len(names) > 0 || len(namesFirst) > 0) {
+		body.AppendNewline()
+		body.AppendNewline()
+	}
+
+	// Add the blocks
+	for idx, block := range blocks {
+		body.AppendBlock(block)
+
+		if idx+1 < len(blocks) {
+			body.AppendNewline()
+		}
+	}
+	// FIXME: Special care for lifecycle block
+
+	// Add depends_on attribute
+	if hasDependsOn {
+		if len(blocks) > 0 || len(names) > 0 || len(namesFirst) > 0 {
+			body.AppendNewline()
+		}
+
+		attr := attrs["depends_on"]
+		tokens := attr.BuildTokens(nil)
+
+		// Remove leading and trailing newlines from tokens
+		start, end := 0, len(tokens)
+		for start < end && tokens[start].Type == hclsyntax.TokenNewline {
+			start++
+		}
+		for end > start && tokens[end-1].Type == hclsyntax.TokenNewline {
+			end--
+		}
+		body.AppendUnstructuredTokens(tokens[start:end])
+	}
+
+	body.AppendNewline()
+}
+
 // ProcessAndSortBlocks extracts sortable blocks (variables, outputs, locals, terraform) and sorts them.
 func ProcessAndSortBlocks(
 	file *hclwrite.File,
@@ -109,6 +221,8 @@ func ProcessAndSortBlocks(
 		switch block.Type() {
 		case "terraform":
 			sortRequiredProvidersInBlock(block)
+		case "resource":
+			sortResourceParams(block)
 		case "locals":
 			sortLocalsBlock(block)
 		}
