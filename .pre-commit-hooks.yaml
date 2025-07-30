@@ -3,5 +3,5 @@
   description: This hook uses github.com/AlexNabokikh/tfsort to sort terraform files
   entry: tfsort
   language: golang
-  files: \.(tf|tofu)$
+  files: \.(tf|tofu|hcl)$
   exclude: \.terraform/.*$
